@@ -1,0 +1,50 @@
+name: fany-watch
+
+on:
+  schedule:
+    - cron: "0 */2 * * *"    # scrape: FANY巡回（2時間おき）
+    - cron: "*/45 * * * *"   # remind: 先着リマインド判定（FANY非アクセス・45分おき）
+  workflow_dispatch: {}       # 手動実行（scrape+remind 両方）
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fany-watch          # scrapeとremindが同時に走らないよう直列化
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install requests beautifulsoup4
+
+      - name: Run
+        env:
+          # 公開リポジトリで運用する場合はここにSecretを設定し、
+          # スクリプト内の既定Webhookは空文字にしてください。
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TZ: Asia/Tokyo
+        run: |
+          SCHED='${{ github.event.schedule }}'
+          if [ "$SCHED" = "0 */2 * * *" ]; then
+            python fany_watch.py scrape
+          elif [ "$SCHED" = "*/45 * * * *" ]; then
+            python fany_watch.py remind
+          else
+            python fany_watch.py both
+          fi
+
+      - name: Persist state
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git pull --rebase --autostash 2>/dev/null || true
+          git add fany_seen.json fany_notifications.log 2>/dev/null || true
+          git commit -m "update watch state" 2>/dev/null || echo "no changes"
+          git push 2>/dev/null || echo "nothing to push"
