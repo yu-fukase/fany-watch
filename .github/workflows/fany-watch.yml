@@ -1,4 +1,4 @@
-name: fany-watch
+name: fany_watch.py
 
 on:
   schedule:
@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: fany-watch          # scrapeとremindが同時に走らないよう直列化
+  group: fany_watch.py          # scrapeとremindが同時に走らないよう直列化
   cancel-in-progress: false
 
 jobs:
