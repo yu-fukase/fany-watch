@@ -1,4 +1,4 @@
-name: fany_watch.py
+name: fany_watch
 
 on:
   schedule:
