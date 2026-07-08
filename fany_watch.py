@@ -3,7 +3,7 @@
 """
 FANYチケット 出演者ウォッチャー（新着通知 + 先着リマインド）
 ============================================================
-「ドンデコルテ」または「渡辺銀次」が"出演"欄に含まれる公演を監視し、Discordに通知する。
+「ドンデコルテ」または「渡辺銀次」または「CITY」または「素敵じゃないか」が"出演"欄に含まれる公演を監視し、Discordに通知する。
 
 2つのモードがある（FANYへのアクセスは scrape のみ・2時間おき想定）:
   python fany_watch.py scrape   … FANYを巡回。新着公演を通知し、先着販売の日程を保存
@@ -34,7 +34,7 @@ import requests
 from bs4 import BeautifulSoup
 
 # ========= 設定 =========
-KEYWORDS = ["ドンデコルテ", "渡辺銀次"]
+KEYWORDS = ["ドンデコルテ", "渡辺銀次", "CITY", "素敵じゃないか"]
 BASE = "https://ticket.fany.lol"
 SEARCH = BASE + "/search/event"
 JST = ZoneInfo("Asia/Tokyo")
@@ -49,7 +49,7 @@ STATE_FILE = Path(os.environ.get("FANY_STATE_FILE", "fany_seen.json"))
 REQUEST_INTERVAL = 1.5
 TIMEOUT = 20
 USER_AGENT = "fany-personal-watch/2.0 (personal use)"
-MAX_DETAIL_FETCH = 60          # 1回のscrapeで詳細取得する上限
+MAX_DETAIL_FETCH = 150         # 1回のscrapeで詳細取得する上限
 R1_GRACE_H = 4                 # 前日22:00リマインドの発火猶予(時間)。過ぎたら未送信のまま既読化
 SALE_PRUNE_DAYS = 2            # 販売開始からこの日数を過ぎた先着枠は掃除
 
