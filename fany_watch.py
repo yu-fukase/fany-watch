@@ -48,7 +48,9 @@ DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL") or \
 STATE_FILE = Path(os.environ.get("FANY_STATE_FILE", "fany_seen.json"))
 REQUEST_INTERVAL = 1.5
 TIMEOUT = 20
-USER_AGENT = "fany-personal-watch/2.0 (personal use)"
+USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+              "AppleWebKit/537.36 (KHTML, like Gecko) "
+              "Chrome/125.0.0.0 Safari/537.36")
 MAX_DETAIL_FETCH = 150         # 1回のscrapeで詳細取得する上限
 R1_GRACE_H = 4                 # 前日22:00リマインドの発火猶予(時間)。過ぎたら未送信のまま既読化
 SALE_PRUNE_DAYS = 2            # 販売開始からこの日数を過ぎた先着枠は掃除
