@@ -30,18 +30,3 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: python fany_watch.py scrape
-
-      - name: "HTML構造ダンプ2"
-        run: |
-          python -c "
-          import fany_watch as f, re
-          from bs4 import BeautifulSoup
-          html = f.get(f.SEARCH, params={'keywords':'ドンデコルテ','search_type':'search_string'})
-          soup = BeautifulSoup(html, 'html.parser')
-          box = soup.find(class_=re.compile('performanceListBox'))
-          print('=== 公演ブロック1つ分 ===')
-          print(box.prettify()[:2500] if box else 'ブロック見つからず')
-          print('=== a href 一覧（ブロック内） ===')
-          if box:
-              for a in box.find_all('a'): print(a.get('href'))
-          "
