@@ -12,9 +12,15 @@ FANYチケット 出演者ウォッチャー（新着通知 + 先着リマイン
   python fany_watch.py both     … 両方（既定）
 
 仕組みの要点:
-  - 検索結果ページ（/search/event）に公演の全情報（出演者・受付期間）が載っているため、
-    そこだけをパースする。詳細ページへの個別アクセスは行わない（ブロック回避＆高速）。
+  - 検索結果ページ（/search/event）を BeautifulSoup でパースする。
+    公演ブロックは class="fany_performanceListBox__outline"。
+      日付   : .fany_performanceListBox__headerPerformanceDate
+      タイトル: .fany_performanceListBox__headerTitle
+      会場   : .fany_performanceListBox__headerVenue
+      出演   : <dt>出演</dt> の隣の <dd>（p.preview_block）
+      受付   : .fany_g-ticketInfo（.fany_g-ticket_lottery が付けば抽選、無ければ先着）
   - 公演の一意キーは reception リンク末尾の「公演ID」。
+  - 詳細ページへの個別アクセスは行わない（ブロック回避＆高速）。
 """
 
 import os
@@ -55,15 +61,12 @@ NOTIFY_WHEN_NO_NEW = True
 session = requests.Session()
 session.headers.update({"User-Agent": USER_AGENT, "Accept-Language": "ja,en;q=0.8"})
 
-# 曜日カッコ内に (日・祝) 等の表記も許容
-DOW = r"[日月火水木金土](?:・[^)）]{0,4})?"
+# 曜日カッコ内に (日・祝) 等の表記、get_text由来のカッコ内スペースも許容
+DOW = r"\s*[日月火水木金土](?:・[^)）]{0,4})?\s*"
 DATETIME = r"20\d{2}/\d{1,2}/\d{1,2}\(" + DOW + r"\)\s*\d{1,2}:\d{2}"
 RECEPT_RE = re.compile(
     r"受付期間[：:]\s*(" + DATETIME + r")\s*[～〜\-–]\s*(" + DATETIME + r")")
-HEAD_RE = re.compile(
-    r"^(20\d{2}/\d{1,2}/\d{1,2}\(" + DOW + r"\))"
-    r"(?:開場\s*\d{1,2}:\d{2})?\s*(?:開演\s*\d{1,2}:\d{2})?\s*(.*)$")
-PREF_RE = re.compile(r"（(北海道|東京都|大阪府|京都府|.{2,4}県)）\s*$")
+DATE_HEAD_RE = re.compile(r"(20\d{2}/\d{1,2}/\d{1,2}\(" + DOW + r"\))")
 
 
 # ========= 取得 =========
@@ -76,80 +79,13 @@ def get(url, params=None):
 
 
 # ========= 解析（検索結果ページを丸ごとパース） =========
-def parse_search_html(html):
-    """検索結果ページHTMLを公演単位にパースして dict のリストを返す。
-    公演ID(reception/eventリンク末尾)をキーに、日時/公演名/都道府県/出演者/受付枠をまとめる。
-    """
-    soup = BeautifulSoup(html, "html.parser")
-    events = {}
+def _txt(el):
+    return el.get_text(" ", strip=True) if el else ""
 
-    def ev(eid):
-        return events.setdefault(eid, {
-            "id": eid, "url": f"{BASE}/event/{eid}",
-            "date": "", "title_venue": "", "pref": "", "cast": "", "sales": []})
 
-    # 1) 見出しリンク /event/<id> から 日時 / 公演名(会場込み) / 都道府県
-    for a in soup.find_all("a", href=re.compile(r"/event/\d+")):
-        m = re.search(r"/event/(\d+)", a["href"])
-        if not m:
-            continue
-        eid = m.group(1)
-        head = a.get_text(" ", strip=True)
-        e = ev(eid)
-        hm = HEAD_RE.match(head)
-        if hm:
-            e["date"] = hm.group(1)
-            rest = hm.group(2).strip()
-        else:
-            rest = head
-        if rest:
-            e["title_venue"] = rest
-        pm = PREF_RE.search(rest)
-        if pm:
-            e["pref"] = pm.group(1)
-
-    # 2) reception リンクから 受付期間（先着/抽選）を抽出。公演IDでひも付け
-    for a in soup.find_all("a", href=re.compile(r"/reception/\d+/\d+")):
-        m = re.search(r"/reception/\d+/(\d+)", a["href"])
-        if not m:
-            continue
-        eid = m.group(1)
-        e = ev(eid)
-        parent = a.find_parent(["li", "div", "p"])
-        context = parent.get_text(" ", strip=True) if parent else ""
-        atext = a.get_text(" ", strip=True)
-        rm = RECEPT_RE.search(context) or RECEPT_RE.search(atext)
-        if not rm:
-            continue
-        cat = "抽選" if "抽選" in (context or atext) else "先着"
-        key = (cat, rm.group(1), rm.group(2))
-        if key not in {(s["cat"], s["start"], s["end"]) for s in e["sales"]}:
-            e["sales"].append({"cat": cat, "start": rm.group(1), "end": rm.group(2)})
-
-    # 3) 出演者テキスト（"出演" ラベルを含むブロック）
-    for lab in soup.find_all(string=re.compile(r"出演")):
-        block = lab.find_parent(["div", "section", "article", "li"])
-        if not block:
-            continue
-        link = block.find("a", href=re.compile(r"/event/\d+"))
-        if not link:
-            p = block.find_parent()
-            link = p.find("a", href=re.compile(r"/event/\d+")) if p else None
-        if not link:
-            continue
-        eid = re.search(r"/event/(\d+)", link["href"]).group(1)
-        if eid not in events:
-            continue
-        cm = re.search(r"出演[者]?[：:]?\s*(.+)", block.get_text(" ", strip=True))
-        if cm:
-            events[eid]["cast"] = cm.group(1).strip()
-
-    # 4) マッチ判定用テキスト（出演者＋公演名）
-    for e in events.values():
-        e["search_text"] = " ".join([e.get("cast", ""), e.get("title_venue", "")])
-        e["sales_disp"] = sales_lines(e["sales"])
-
-    return list(events.values())
+def _norm_dt(s):
+    """'2026/07/12( 日 ) 11:00' -> '2026/07/12(日)11:00' に正規化。"""
+    return re.sub(r"\(\s*([^)]*?)\s*\)", r"(\1)", s).replace(" ", "")
 
 
 def sales_lines(sales):
@@ -162,6 +98,74 @@ def sales_lines(sales):
     return lines or ["（受付情報は公演ページをご確認ください）"]
 
 
+def parse_search_html(html):
+    """検索結果ページHTMLを公演単位にパースして dict のリストを返す。"""
+    soup = BeautifulSoup(html, "html.parser")
+    events = []
+
+    for box in soup.find_all(class_="fany_performanceListBox__outline"):
+        # 日付
+        date_el = box.find(class_="fany_performanceListBox__headerPerformanceDate")
+        date_raw = _txt(date_el)
+        dm = DATE_HEAD_RE.search(date_raw)
+        date = _norm_dt(dm.group(1)) if dm else _norm_dt(date_raw)
+
+        # タイトル・会場
+        title = _txt(box.find(class_="fany_performanceListBox__headerTitle"))
+        venue = _txt(box.find(class_="fany_performanceListBox__headerVenue"))
+        pref = ""
+        pm = re.search(r"（([^）]+?)）\s*$", venue)
+        if pm:
+            pref = pm.group(1)
+
+        # 出演者: <dt>出演</dt> の隣の <dd>
+        cast = ""
+        for dt in box.find_all("dt"):
+            if "出演" in _txt(dt):
+                dd = dt.find_next("dd")
+                if dd:
+                    cast = _txt(dd)
+                break
+        if not cast:
+            pb = box.find("p", class_="preview_block")
+            if pb:
+                cast = _txt(pb)
+
+        # 公演ID: reception リンク末尾
+        eid = ""
+        a0 = box.find("a", href=re.compile(r"/reception/\d+/\d+"))
+        if a0:
+            m = re.search(r"/reception/\d+/(\d+)", a0["href"])
+            if m:
+                eid = m.group(1)
+
+        # 受付枠
+        sales, seen = [], set()
+        for tinfo in box.find_all(class_=re.compile(r"fany_g-ticketInfo\b")):
+            cls = " ".join(tinfo.get("class", []))
+            context = _txt(tinfo)
+            rm = RECEPT_RE.search(context)
+            if not rm:
+                continue
+            cat = "抽選" if ("lottery" in cls or "抽選" in context) else "先着"
+            start, end = _norm_dt(rm.group(1)), _norm_dt(rm.group(2))
+            key = (cat, start, end)
+            if key in seen:
+                continue
+            seen.add(key)
+            sales.append({"cat": cat, "start": start, "end": end})
+
+        events.append({
+            "id": eid, "url": f"{BASE}/event/{eid}" if eid else BASE,
+            "date": date, "title": title, "venue": venue, "pref": pref,
+            "title_venue": (title + (" " + venue if venue else "")).strip(),
+            "cast": cast, "sales": sales,
+            "sales_disp": sales_lines(sales),
+            "search_text": " ".join([cast, title, venue]),
+        })
+    return events
+
+
 def search_events(keyword):
     """キーワードで検索し、パース済み公演リストを返す。"""
     html = get(SEARCH, params={"keywords": keyword, "search_type": "search_string"})
@@ -170,10 +174,12 @@ def search_events(keyword):
 
 # ========= 日時ユーティリティ =========
 def parse_start_iso(s):
-    m = re.search(r"(20\d{2})/(\d{1,2})/(\d{1,2})\(" + DOW + r"\)\s*(\d{1,2}):(\d{2})", s)
+    """'2026/07/20(月)10:00' や '... 10:00' -> JST aware isoformat 文字列。失敗時 None。"""
+    m = re.search(r"(20\d{2})/(\d{1,2})/(\d{1,2})\(\s*[日月火水木金土][^)]*\)\s*(\d{1,2}):(\d{2})", s)
     if not m:
         return None
-    y, mo, d, h, mi = int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4)), int(m.group(5))
+    y, mo, d, h, mi = (int(m.group(1)), int(m.group(2)), int(m.group(3)),
+                       int(m.group(4)), int(m.group(5)))
     return datetime(y, mo, d, h, mi, tzinfo=JST).isoformat()
 
 
@@ -231,17 +237,18 @@ def notify_event(ev):
     cast = ev.get("cast") or ev.get("title_venue") or "(出演者情報を取得できませんでした)"
     if len(cast) > 1000:
         cast = cast[:1000] + "…"
-    venue = ev.get("title_venue") or "-"
+    title = ev.get("title") or ev.get("title_venue") or "-"
     body = (f"「{'／'.join(matched)}」が出演する公演が追加されました。\n\n"
-            f"■ 公演: {venue}\n"
+            f"■ 公演タイトル: {title}\n"
             f"■ 公演日: {ev.get('date') or '-'}\n"
+            f"■ 場所: {ev.get('venue') or '-'}\n"
             f"■ 出演者: {cast}\n"
             f"■ 申し込み日程:\n" + "\n".join("　- " + l for l in ev["sales_disp"]) +
             f"\n\n{ev['url']}")
-    embed = {"title": f"🎫 新着公演: {venue[:200]}", "url": ev["url"], "color": 0x3D52D5,
+    embed = {"title": f"🎫 新着公演: {title[:200]}", "url": ev["url"], "color": 0x3D52D5,
              "fields": [
                  {"name": "公演日", "value": ev.get("date") or "-", "inline": True},
-                 {"name": "都道府県", "value": ev.get("pref") or "-", "inline": True},
+                 {"name": "場所", "value": (ev.get("venue") or "-")[:1024], "inline": True},
                  {"name": "出演者", "value": cast, "inline": False},
                  {"name": "申し込み日程", "value": "\n".join(ev["sales_disp"])[:1024], "inline": False},
                  {"name": "検出キーワード", "value": "／".join(matched), "inline": False}]}
@@ -252,7 +259,7 @@ def notify_event(ev):
 
 def notify_more(events):
     n = len(events)
-    lst = "\n".join(f"・{e.get('title_venue') or e['id']}（{e.get('date') or '日程未定'}） {e['url']}"
+    lst = "\n".join(f"・{e.get('title') or e['id']}（{e.get('date') or '日程未定'}） {e['url']}"
                     for e in events)
     content = f"📢 他{n}件の公演が追加されました\n{lst}"
     if not send_discord({"content": content[:1900]}):
@@ -271,18 +278,19 @@ def notify_no_new():
 def notify_sale_reminder(sale, kind):
     when = "【前日リマインド】明日" if kind == "r1" else "【まもなく】約1時間後"
     emoji = "🔔" if kind == "r1" else "⏰"
-    venue = sale.get("title_venue") or sale.get("title") or "-"
-    title = f"{emoji} 先着販売リマインド: {venue[:180]}"
+    title = sale.get("title") or sale.get("title_venue") or "-"
+    head = f"{emoji} 先着販売リマインド: {title[:180]}"
     body = (f"{when} {sale['start']} に先着販売が開始します。\n\n"
-            f"■ 公演: {venue}\n"
+            f"■ 公演: {title}\n"
             f"■ 公演日: {sale.get('date') or '-'}\n"
+            f"■ 場所: {sale.get('venue') or '-'}\n"
             f"■ 出演: {sale.get('matched') or '-'}\n"
             f"■ 先着受付開始: {sale['start']}\n\n{sale['url']}")
-    embed = {"title": title, "url": sale["url"], "color": 0xD4880A,
+    embed = {"title": head, "url": sale["url"], "color": 0xD4880A,
              "fields": [
                  {"name": "先着受付開始", "value": sale["start"], "inline": False},
                  {"name": "公演日", "value": sale.get("date") or "-", "inline": True},
-                 {"name": "都道府県", "value": sale.get("pref") or "-", "inline": True}]}
+                 {"name": "場所", "value": (sale.get("venue") or "-")[:1024], "inline": True}]}
     if not send_discord({"embeds": [embed]}):
         print("\n=== リマインド(フォールバック) ===\n" + body + "\n")
     log(body)
@@ -302,7 +310,8 @@ def register_sales(state, ev, matched):
         key = f"{ev['id']}|{s['start']}"
         cur = state["sales"].get(key, {})
         state["sales"][key] = {
-            "event_id": ev["id"], "title_venue": ev.get("title_venue", ""),
+            "event_id": ev["id"], "title": ev.get("title", ""),
+            "title_venue": ev.get("title_venue", ""), "venue": ev.get("venue", ""),
             "pref": ev.get("pref", ""), "date": ev.get("date", ""), "url": ev["url"],
             "matched": "／".join(matched), "start": s["start"], "start_iso": iso,
             "r1_sent": cur.get("r1_sent", False),
@@ -319,12 +328,13 @@ def scrape():
     for kw in KEYWORDS:
         try:
             for ev in search_events(kw):
+                if not ev["id"]:
+                    continue
                 cur = by_id.get(ev["id"])
                 if cur is None:
                     by_id[ev["id"]] = ev
                 else:
-                    # 情報を補完
-                    for f in ("date", "title_venue", "pref", "cast"):
+                    for f in ("date", "title", "venue", "pref", "cast"):
                         if not cur.get(f) and ev.get(f):
                             cur[f] = ev[f]
                     if ev["sales"]:
@@ -333,12 +343,15 @@ def scrape():
                             if (s["cat"], s["start"], s["end"]) not in seen:
                                 cur["sales"].append(s)
                         cur["sales_disp"] = sales_lines(cur["sales"])
+                    cur["search_text"] = " ".join([cur.get("cast", ""),
+                                                   cur.get("title", ""),
+                                                   cur.get("venue", "")])
         except Exception as e:
             print(f"[error] 検索失敗 ({kw}):", e)
 
     now = datetime.now(JST)
 
-    # キーワード一致する公演だけ残す（出演者 or 公演名にヒット）
+    # キーワード一致（出演者 or 公演名 or 会場）
     matched_list = []
     for ev in by_id.values():
         matched = [k for k in KEYWORDS if k in ev.get("search_text", "")]
@@ -352,17 +365,17 @@ def scrape():
         rec = matched_events.get(ev["id"])
         if rec is None:
             matched_events[ev["id"]] = {
-                "title_venue": ev.get("title_venue", ""), "url": ev["url"],
-                "pref": ev.get("pref", ""), "date": ev.get("date", ""),
-                "cast": ev.get("cast", ""), "notified": False}
+                "title": ev.get("title", ""), "url": ev["url"],
+                "venue": ev.get("venue", ""), "pref": ev.get("pref", ""),
+                "date": ev.get("date", ""), "cast": ev.get("cast", ""),
+                "notified": False}
             newly.append(ev)
         else:
-            rec.update({"title_venue": ev.get("title_venue", ""),
+            rec.update({"title": ev.get("title", ""), "venue": ev.get("venue", ""),
                         "pref": ev.get("pref", ""), "date": ev.get("date", ""),
                         "cast": ev.get("cast", "")})
 
     if not state["initialized"]:
-        # 初回はベースライン登録のみ（通知しない）
         for ev in newly:
             matched_events[ev["id"]]["notified"] = True
         print(f"[init] 現在の該当 {len(newly)} 件、先着枠 {len(state['sales'])} 件を"
@@ -375,7 +388,6 @@ def scrape():
             notify_event(to_notify[0])
             notify_more(to_notify[1:])
         else:
-            # 追加なし
             if NOTIFY_WHEN_NO_NEW:
                 notify_no_new()
         for ev in to_notify:
