@@ -1,7 +1,7 @@
 name: fany-debug
 
 on:
-  workflow_dispatch:   # Actions タブから手動実行
+  workflow_dispatch:
 
 jobs:
   debug:
@@ -16,28 +16,17 @@ jobs:
       - name: Install deps
         run: pip install requests beautifulsoup4
 
-      # ② の判定を実態に合わせるため、保存済み状態を復元
-      - name: Restore state
-        uses: actions/cache@v4
-        with:
-          path: fany_seen.json
-          key: fany-state-debug
-          restore-keys: fany-state
-
-      - name: "1) Webhook 配線チェック（Discordにテスト送信）"
+      - name: "1) Webhook 配線チェック"
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
           python -c "import fany_watch as f; print('webhook set:', bool(f.DISCORD_WEBHOOK_URL)); print('sent:', f.send_discord({'content':'✅ GitHub Actions テスト通知'}))"
 
-      - name: "2) 状態ファイルチェック"
+      - name: "2) スクレイプ命中チェック（新関数）"
         run: |
-          if [ -f fany_seen.json ]; then
-            python -c "import json; s=json.load(open('fany_seen.json',encoding='utf-8')); print('initialized:', s.get('initialized')); print('matched:', len(s.get('matched_events',{}))); print('sales:', len(s.get('sales',{})))"
-          else
-            echo '=> fany_seen.json が無い。毎回 initialized=False から始まる可能性大（後述）'
-          fi
+          python -c "import fany_watch as f; [print(kw, '->', [(e['id'], e['date'], [k for k in f.KEYWORDS if k in e['search_text']]) for e in f.search_events(kw)]) for kw in f.KEYWORDS]"
 
-      - name: "3) スクレイプ命中チェック"
-        run: |
-          python -c "import fany_watch as f; [print(kw, '->', f.search_event_ids(kw)) for kw in f.KEYWORDS]"
+      - name: "3) scrape 実行"
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python fany_watch.py scrape
