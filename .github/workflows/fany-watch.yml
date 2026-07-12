@@ -45,6 +45,8 @@ jobs:
           git config user.name "github-actions"
           git config user.email "actions@github.com"
           git pull --rebase --autostash 2>/dev/null || true
-          git add fany_seen.json fany_notifications.log 2>/dev/null || true
+          # 存在するファイルだけを個別に add（無いファイルで止まらないように）
+          [ -f fany_seen.json ] && git add fany_seen.json
+          [ -f fany_notifications.log ] && git add fany_notifications.log
           git commit -m "update watch state" 2>/dev/null || echo "no changes"
           git push 2>/dev/null || echo "nothing to push"
