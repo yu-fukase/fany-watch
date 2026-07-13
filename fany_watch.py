@@ -4,23 +4,20 @@
 FANYチケット 出演者ウォッチャー（新着通知 + 先着リマインド）
 ============================================================
 「ドンデコルテ」または「渡辺銀次」または「CITY」または「素敵じゃないか」が
-"出演"欄（または公演名）に含まれる公演を監視し、Discordに通知する。
+"出演"欄（または公演名・会場名）に含まれる公演を監視し、Discordに通知する。
 
 モード（FANYへのアクセスは scrape のみ・2時間おき想定）:
   python fany_watch.py scrape   … FANYを巡回。新着公演を通知し、先着販売の日程を保存
   python fany_watch.py remind   … FANYには触れず、保存済みの先着日程だけを見てリマインド送信
   python fany_watch.py both     … 両方（既定）
 
-仕組みの要点:
-  - 検索結果ページ（/search/event）を BeautifulSoup でパースする。
-    公演ブロックは class="fany_performanceListBox__outline"。
-      日付   : .fany_performanceListBox__headerPerformanceDate
-      タイトル: .fany_performanceListBox__headerTitle
-      会場   : .fany_performanceListBox__headerVenue
-      出演   : <dt>出演</dt> の隣の <dd>（p.preview_block）
-      受付   : .fany_g-ticketInfo（.fany_g-ticket_lottery が付けば抽選、無ければ先着）
-  - 公演の一意キーは reception リンク末尾の「公演ID」。
-  - 詳細ページへの個別アクセスは行わない（ブロック回避＆高速）。
+取得方式（重要）:
+  FANYの検索は無限スクロール型で、HTMLには先頭10件しか含まれない。
+  実データは JSON API  GET /search/event_more?keywords=..&search_type=search_string&offset=N
+  から取得できる（レスポンスは {"performances":[...], "load_count":N}）。
+  offset を 0,10,20,... と増やし load_count が尽きるまで呼ぶことで全件取得する。
+  各公演の performer_detail（全出演者）・performance_sales（受付情報）を直接読むため、
+  HTMLスクレイピングは行わない（省略表示や曜日カッコ等の問題が原理的に発生しない）。
 """
 
 import os
@@ -33,12 +30,11 @@ from zoneinfo import ZoneInfo
 from pathlib import Path
 
 import requests
-from bs4 import BeautifulSoup
 
 # ========= 設定 =========
 KEYWORDS = ["ドンデコルテ", "渡辺銀次", "CITY", "素敵じゃないか"]
 BASE = "https://ticket.fany.lol"
-SEARCH = BASE + "/search/event"
+SEARCH_MORE = BASE + "/search/event_more"
 JST = ZoneInfo("Asia/Tokyo")
 
 # 通知先Discord Webhook（環境変数があれば優先）。
@@ -48,155 +44,131 @@ DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL") or \
     ""
 
 STATE_FILE = Path(os.environ.get("FANY_STATE_FILE", "fany_seen.json"))
-REQUEST_INTERVAL = 1.5
+REQUEST_INTERVAL = 1.5         # 各APIリクエスト後の待機秒（FANYへの負荷軽減）
 TIMEOUT = 20
 USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
               "AppleWebKit/537.36 (KHTML, like Gecko) "
               "Chrome/125.0.0.0 Safari/537.36")
+PAGE_STEP = 10                 # offset の増分（1ページ=10件）
+MAX_PAGES = 60                 # 安全上限（暴走防止。10*60=600件まで）
 SALE_PRUNE_DAYS = 2            # 販売開始からこの日数を過ぎた先着枠は掃除
 R1_GRACE_H = 4                # 前日22:00リマインドの発火猶予(時間)。過ぎたら未送信のまま既読化
 # 「追加なし」通知を毎回送るか。True=毎回送る / False=送らない
 NOTIFY_WHEN_NO_NEW = True
 
 session = requests.Session()
-session.headers.update({"User-Agent": USER_AGENT, "Accept-Language": "ja,en;q=0.8"})
-
-# 曜日カッコ内に (日・祝) 等の表記、get_text由来のカッコ内スペースも許容
-DOW = r"\s*[日月火水木金土](?:・[^)）]{0,4})?\s*"
-DATETIME = r"20\d{2}/\d{1,2}/\d{1,2}\(" + DOW + r"\)\s*\d{1,2}:\d{2}"
-RECEPT_RE = re.compile(
-    r"受付期間[：:]\s*(" + DATETIME + r")\s*[～〜\-–]\s*(" + DATETIME + r")")
-DATE_HEAD_RE = re.compile(r"(20\d{2}/\d{1,2}/\d{1,2}\(" + DOW + r"\))")
+session.headers.update({"User-Agent": USER_AGENT,
+                        "Accept-Language": "ja,en;q=0.8",
+                        "X-Requested-With": "XMLHttpRequest"})
 
 
 # ========= 取得 =========
-def get(url, params=None):
+def get_json(url, params=None):
     r = session.get(url, params=params, timeout=TIMEOUT)
     r.raise_for_status()
-    r.encoding = r.apparent_encoding or "utf-8"
     time.sleep(REQUEST_INTERVAL)
-    return r.text
+    return r.json()
 
 
-# ========= 解析（検索結果ページを丸ごとパース） =========
-def _txt(el):
-    return el.get_text(" ", strip=True) if el else ""
+def fetch_all_performances(keyword):
+    """event_more を offset ページングして全公演(生JSON dict)を返す。"""
+    out, offset = [], 0
+    for _ in range(MAX_PAGES):
+        try:
+            data = get_json(SEARCH_MORE, params={
+                "keywords": keyword, "search_type": "search_string",
+                "offset": offset})
+        except Exception as e:
+            print(f"[warn] 取得失敗 (kw={keyword}, offset={offset}):", e)
+            break
+        perfs = data.get("performances", []) or []
+        load = data.get("load_count", len(perfs))
+        out.extend(perfs)
+        if not perfs or load < PAGE_STEP:
+            break                      # 最終ページ
+        offset += PAGE_STEP
+    return out
 
 
-def _norm_dt(s):
-    """'2026/07/12( 日 ) 11:00' -> '2026/07/12(日)11:00' に正規化。"""
-    return re.sub(r"\(\s*([^)]*?)\s*\)", r"(\1)", s).replace(" ", "")
+# ========= 解析（JSONフィールドを読むだけ） =========
+def _strip_tags(s):
+    return re.sub(r"<[^>]+>", "", s or "").strip()
+
+
+def _raw_to_iso(raw):
+    """'20260520100000' -> JST isoformat 文字列。失敗時 None。"""
+    if not raw or not re.fullmatch(r"\d{14}", str(raw)):
+        return None
+    raw = str(raw)
+    y, mo, d = int(raw[0:4]), int(raw[4:6]), int(raw[6:8])
+    h, mi, s = int(raw[8:10]), int(raw[10:12]), int(raw[12:14])
+    try:
+        return datetime(y, mo, d, h, mi, s, tzinfo=JST).isoformat()
+    except ValueError:
+        return None
+
+
+def _raw_to_disp(raw):
+    iso = _raw_to_iso(raw)
+    if not iso:
+        return ""
+    return datetime.fromisoformat(iso).strftime("%Y/%m/%d %H:%M")
 
 
 def sales_lines(sales):
     lines = []
     for s in sales:
+        st = f"（{s['status']}）" if s.get("status") else ""
         if s["cat"] == "抽選":
-            lines.append(f"抽選受付: {s['start']} 〜 {s['end']}")
+            nm = f"[{s['name']}]" if s.get("name") else ""
+            lines.append(f"抽選受付{nm}: {s['start']} 〜 {s['end']}{st}")
         else:
-            lines.append(f"先着受付開始: {s['start']}")
+            lines.append(f"先着受付開始: {s['start']}{st}")
     return lines or ["（受付情報は公演ページをご確認ください）"]
 
 
-def parse_search_html(html):
-    """検索結果ページHTMLを公演単位にパースして dict のリストを返す。"""
-    soup = BeautifulSoup(html, "html.parser")
-    events = []
+def parse_performance(p):
+    """event_more の1公演dictを、内部形式のdictに変換。"""
+    eid = str(p.get("id", "") or "")
+    name = p.get("name", "") or ""
+    venue = _strip_tags(p.get("venue_name", ""))
+    date = _strip_tags(p.get("performance_date", ""))
+    cast = p.get("performer_detail", "") or ""
+    pref = ""
+    m = re.search(r"（([^）]+?)）\s*$", venue)
+    if m:
+        pref = m.group(1)
 
-    # 公演の区切りは見出し(__header)。各見出しから次の見出しまでを1公演として扱う。
-    # （__outline は全公演を囲む箱が1個だけなので単位にできない）
-    headers = soup.find_all(class_="fany_performanceListBox__header")
-    for h in headers:
-        # 日付
-        date_el = h.find(class_="fany_performanceListBox__headerPerformanceDate")
-        date_raw = _txt(date_el)
-        dm = DATE_HEAD_RE.search(date_raw)
-        date = _norm_dt(dm.group(1)) if dm else _norm_dt(date_raw)
-
-        # タイトル・会場
-        title = _txt(h.find(class_="fany_performanceListBox__headerTitle"))
-        venue = _txt(h.find(class_="fany_performanceListBox__headerVenue"))
-        pref = ""
-        pm = re.search(r"（([^）]+?)）\s*$", venue)
-        if pm:
-            pref = pm.group(1)
-
-        # この見出しに属する範囲 = 次の __header が現れるまでの兄弟要素群
-        sibs = []
-        for sib in h.next_siblings:
-            get = getattr(sib, "get", None)
-            if get is not None:
-                cls = sib.get("class") or []
-                if "fany_performanceListBox__header" in cls:
-                    break
-            sibs.append(sib)
-        scope = BeautifulSoup("".join(str(s) for s in sibs), "html.parser")
-
-        # 出演者: <dt>出演</dt> の隣の <dd>
-        cast = ""
-        for dt in scope.find_all("dt"):
-            if "出演" in _txt(dt):
-                dd = dt.find_next("dd")
-                if dd:
-                    cast = _txt(dd)
-                break
-        if not cast:
-            pb = scope.find("p", class_="preview_block")
-            if pb:
-                cast = _txt(pb)
-
-        # 公演ID: reception リンク末尾
-        eid = ""
-        a0 = scope.find("a", href=re.compile(r"/reception/\d+/\d+"))
-        if a0:
-            m = re.search(r"/reception/\d+/(\d+)", a0["href"])
-            if m:
-                eid = m.group(1)
-
-        # 受付枠
-        sales, seen = [], set()
-        for tinfo in scope.find_all(class_=re.compile(r"fany_g-ticketInfo\b")):
-            cls = " ".join(tinfo.get("class", []))
-            context = _txt(tinfo)
-            rm = RECEPT_RE.search(context)
-            if not rm:
-                continue
-            cat = "抽選" if ("lottery" in cls or "抽選" in context) else "先着"
-            start, end = _norm_dt(rm.group(1)), _norm_dt(rm.group(2))
-            key = (cat, start, end)
-            if key in seen:
-                continue
-            seen.add(key)
-            sales.append({"cat": cat, "start": start, "end": end})
-
-        events.append({
-            "id": eid, "url": f"{BASE}/event/{eid}" if eid else BASE,
-            "date": date, "title": title, "venue": venue, "pref": pref,
-            "title_venue": (title + (" " + venue if venue else "")).strip(),
-            "cast": cast, "sales": sales,
-            "sales_disp": sales_lines(sales),
-            "search_text": " ".join([cast, title, venue]),
+    sales = []
+    for s in (p.get("performance_sales", []) or []):
+        sname = s.get("sales_name", "") or ""
+        status = s.get("display_sales_status", "") or ""
+        cat = "抽選" if ("抽選" in sname or "抽選" in status) else "先着"
+        start_raw = s.get("sales_start_datetime_raw", "")
+        end_raw = s.get("sales_end_datetime_raw", "")
+        sales.append({
+            "cat": cat, "name": sname, "status": status,
+            "start": _raw_to_disp(start_raw), "start_iso": _raw_to_iso(start_raw),
+            "end": _raw_to_disp(end_raw),
+            "url": s.get("destination_url", "") or "",
         })
-    return events
+
+    return {
+        "id": eid, "url": f"{BASE}/event/{eid}" if eid else BASE,
+        "name": name, "title": name, "venue": venue, "pref": pref,
+        "date": date, "cast": cast, "sales": sales,
+        "sales_disp": sales_lines(sales),
+        "title_venue": (name + (" " + venue if venue else "")).strip(),
+        "search_text": " ".join([cast, name, venue]),
+    }
 
 
 def search_events(keyword):
-    """キーワードで検索し、パース済み公演リストを返す。"""
-    html = get(SEARCH, params={"keywords": keyword, "search_type": "search_string"})
-    return parse_search_html(html)
+    """キーワードで全件取得し、パース済み公演リストを返す。"""
+    return [parse_performance(p) for p in fetch_all_performances(keyword)]
 
 
 # ========= 日時ユーティリティ =========
-def parse_start_iso(s):
-    """'2026/07/20(月)10:00' や '... 10:00' -> JST aware isoformat 文字列。失敗時 None。"""
-    m = re.search(r"(20\d{2})/(\d{1,2})/(\d{1,2})\(\s*[日月火水木金土][^)]*\)\s*(\d{1,2}):(\d{2})", s)
-    if not m:
-        return None
-    y, mo, d, h, mi = (int(m.group(1)), int(m.group(2)), int(m.group(3)),
-                       int(m.group(4)), int(m.group(5)))
-    return datetime(y, mo, d, h, mi, tzinfo=JST).isoformat()
-
-
 def parse_date_only(s):
     m = re.search(r"(20\d{2})/(\d{1,2})/(\d{1,2})", s or "")
     if not m:
@@ -248,7 +220,7 @@ def log(msg):
 
 def notify_event(ev):
     matched = ev["matched"]
-    cast = ev.get("cast") or ev.get("title_venue") or "(出演者情報を取得できませんでした)"
+    cast = ev.get("cast") or "(出演者情報を取得できませんでした)"
     if len(cast) > 1000:
         cast = cast[:1000] + "…"
     title = ev.get("title") or ev.get("title_venue") or "-"
@@ -290,17 +262,18 @@ def notify_no_new():
 
 
 def notify_sale_reminder(sale, kind):
-    when = "【前日リマインド】明日" if kind == "r1" else "【まもなく】約1時間後"
+    when = "【前日リマインド】明日" if kind == "r1" else "【本日】まもなく"
     emoji = "🔔" if kind == "r1" else "⏰"
     title = sale.get("title") or sale.get("title_venue") or "-"
     head = f"{emoji} 先着販売リマインド: {title[:180]}"
+    url = sale.get("sale_url") or sale.get("url")
     body = (f"{when} {sale['start']} に先着販売が開始します。\n\n"
             f"■ 公演: {title}\n"
             f"■ 公演日: {sale.get('date') or '-'}\n"
             f"■ 場所: {sale.get('venue') or '-'}\n"
             f"■ 出演: {sale.get('matched') or '-'}\n"
-            f"■ 先着受付開始: {sale['start']}\n\n{sale['url']}")
-    embed = {"title": head, "url": sale["url"], "color": 0xD4880A,
+            f"■ 先着受付開始: {sale['start']}\n\n{url}")
+    embed = {"title": head, "url": url, "color": 0xD4880A,
              "fields": [
                  {"name": "先着受付開始", "value": sale["start"], "inline": False},
                  {"name": "公演日", "value": sale.get("date") or "-", "inline": True},
@@ -316,17 +289,18 @@ def register_sales(state, ev, matched):
     for s in ev["sales"]:
         if s["cat"] != "先着":
             continue
-        iso = parse_start_iso(s["start"])
+        iso = s.get("start_iso")
         if not iso:
             continue
         if datetime.fromisoformat(iso) < now - timedelta(days=SALE_PRUNE_DAYS):
             continue
-        key = f"{ev['id']}|{s['start']}"
+        key = f"{ev['id']}|{iso}"
         cur = state["sales"].get(key, {})
         state["sales"][key] = {
             "event_id": ev["id"], "title": ev.get("title", ""),
             "title_venue": ev.get("title_venue", ""), "venue": ev.get("venue", ""),
-            "pref": ev.get("pref", ""), "date": ev.get("date", ""), "url": ev["url"],
+            "pref": ev.get("pref", ""), "date": ev.get("date", ""),
+            "url": ev["url"], "sale_url": s.get("url") or ev["url"],
             "matched": "／".join(matched), "start": s["start"], "start_iso": iso,
             "r1_sent": cur.get("r1_sent", False),
             "r2_sent": cur.get("r2_sent", False),
@@ -337,31 +311,23 @@ def scrape():
     state = load_state()
     matched_events = state["matched_events"]
 
-    # 全キーワードで検索し、公演IDでマージ
+    # 全キーワードで全件取得し、公演IDでマージ
     by_id = {}
     for kw in KEYWORDS:
-        try:
-            for ev in search_events(kw):
-                if not ev["id"]:
-                    continue
-                cur = by_id.get(ev["id"])
-                if cur is None:
-                    by_id[ev["id"]] = ev
-                else:
-                    for f in ("date", "title", "venue", "pref", "cast"):
-                        if not cur.get(f) and ev.get(f):
-                            cur[f] = ev[f]
-                    if ev["sales"]:
-                        seen = {(s["cat"], s["start"], s["end"]) for s in cur["sales"]}
-                        for s in ev["sales"]:
-                            if (s["cat"], s["start"], s["end"]) not in seen:
-                                cur["sales"].append(s)
-                        cur["sales_disp"] = sales_lines(cur["sales"])
-                    cur["search_text"] = " ".join([cur.get("cast", ""),
-                                                   cur.get("title", ""),
-                                                   cur.get("venue", "")])
-        except Exception as e:
-            print(f"[error] 検索失敗 ({kw}):", e)
+        for ev in search_events(kw):
+            if not ev["id"]:
+                continue
+            cur = by_id.get(ev["id"])
+            if cur is None:
+                by_id[ev["id"]] = ev
+            else:
+                # 情報補完（通常は同一だが念のため）
+                for f in ("date", "title", "venue", "pref", "cast"):
+                    if not cur.get(f) and ev.get(f):
+                        cur[f] = ev[f]
+                if ev["sales"] and not cur["sales"]:
+                    cur["sales"] = ev["sales"]
+                    cur["sales_disp"] = ev["sales_disp"]
 
     now = datetime.now(JST)
 
@@ -406,7 +372,8 @@ def scrape():
                 notify_no_new()
         for ev in to_notify:
             matched_events[ev["id"]]["notified"] = True
-        print(f"新着 {len(to_notify)} 件を通知。先着枠 {len(state['sales'])} 件を監視中。")
+        print(f"新着 {len(to_notify)} 件を通知。該当 {len(matched_list)} 件 / "
+              f"先着枠 {len(state['sales'])} 件を監視中。")
 
     # 掃除
     for eid in list(matched_events.keys()):
@@ -424,21 +391,29 @@ def scrape():
 
 # ========= remind（保存済み先着日程のみ・FANY非アクセス） =========
 def evaluate_sale(sale, now):
+    """r1=販売開始【前日22:00】頃 / r2=販売開始【当日9:00】頃 に発火。
+    どちらも数分の遅延を許容するため、指定時刻を過ぎたら販売開始までの間に一度だけ送る。
+    """
     start = datetime.fromisoformat(sale["start_iso"])
     r1 = (start - timedelta(days=1)).replace(hour=22, minute=0, second=0, microsecond=0)
-    r2 = start - timedelta(hours=1)
+    r2 = start.replace(hour=9, minute=0, second=0, microsecond=0)  # 販売開始"当日"の9:00
     send, upd = [], {}
+
+    # r1: 前日22:00頃（発火猶予 R1_GRACE_H 時間以内、かつ販売開始前）
     if not sale.get("r1_sent"):
         if now < r1:
             pass
         elif now < start and (now - r1) <= timedelta(hours=R1_GRACE_H):
             send.append("r1"); upd["r1_sent"] = True
         else:
-            upd["r1_sent"] = True
+            upd["r1_sent"] = True          # 猶予超過 or 販売開始後 → 未送信のまま既読化
+
+    # r2: 当日9:00頃（発火猶予 R1_GRACE_H 時間以内、かつ販売開始前）
+    # ※9:00より前に販売開始する公演では r2 が販売開始後になるため、その場合は送らず既読化
     if not sale.get("r2_sent"):
         if now < r2:
             pass
-        elif now < start:
+        elif now < start and (now - r2) <= timedelta(hours=R1_GRACE_H):
             send.append("r2"); upd["r2_sent"] = True
         else:
             upd["r2_sent"] = True
