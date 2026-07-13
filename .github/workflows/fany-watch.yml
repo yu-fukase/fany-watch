@@ -2,8 +2,8 @@ name: fany_watch
 
 on:
   schedule:
-    - cron: "0 */2 * * *"    # scrape: FANY巡回（2時間おき）
-    - cron: "*/45 * * * *"   # remind: 先着リマインド判定（FANY非アクセス・45分おき）
+    - cron: "0 */6 * * *"    # scrape: FANY巡回（6時間おき）
+    - cron: "*/30 * * * *"   # remind: 先着リマインド判定（FANY非アクセス・30分おき）
   workflow_dispatch: {}       # 手動実行（scrape+remind 両方）
 
 permissions:
@@ -32,9 +32,9 @@ jobs:
           TZ: Asia/Tokyo
         run: |
           SCHED='${{ github.event.schedule }}'
-          if [ "$SCHED" = "0 */2 * * *" ]; then
+          if [ "$SCHED" = "0 */6 * * *" ]; then
             python fany_watch.py scrape
-          elif [ "$SCHED" = "*/45 * * * *" ]; then
+          elif [ "$SCHED" = "*/30 * * * *" ]; then
             python fany_watch.py remind
           else
             python fany_watch.py both
