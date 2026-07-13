@@ -51,16 +51,18 @@ jobs:
               sen = [s for s in e['sales'] if s['cat']=='先着']
               print(e['date'], 'title=', e['title'][:20], '先着枠=', sen)
           "
-      - name: "追加読み込みAPIの手がかり調査"
+      - name: "event_more の中身を確認"
         run: |
           python -c "
-          import fany_watch as f, re
-          html = f.get(f.SEARCH, params={'keywords':'ドンデコルテ','search_type':'search_string'})
-          # ページ番号やAPIパスの手がかりを探す
-          print('--- api/ajax/json/page/load を含む行 ---')
-          for line in html.splitlines():
-              if re.search(r'(api|ajax|\.json|/search|page|offset|limit|load[_A-Za-z]*more|infinite)', line, re.I):
-                  s = line.strip()
-                  if s and len(s) < 300:
-                      print(s[:250])
-          " 2>&1 | head -60
+          import fany_watch as f
+          from bs4 import BeautifulSoup
+          # offset=10 で2ページ目を取得してみる
+          txt = f.get(f.BASE + '/search/event_more', params={'keywords':'ドンデコルテ','search_type':'search_string','offset':10})
+          print('先頭300文字:', repr(txt[:300]))
+          soup = BeautifulSoup(txt, 'html.parser')
+          n = len(soup.find_all(class_='fany_performanceListBox__header'))
+          print('このレスポンス内の公演数:', n)
+          # JSONなら load_count が入っているか
+          if txt.lstrip().startswith('{'):
+              print('JSON形式のようです')
+          "
