@@ -51,3 +51,25 @@ jobs:
               sen = [s for s in e['sales'] if s['cat']=='先着']
               print(e['date'], 'title=', e['title'][:20], '先着枠=', sen)
           "
+      - name: "公演の区切り単位を特定"
+        run: |
+          python -c "
+          import fany_watch as f, re
+          from bs4 import BeautifulSoup
+          html = f.get(f.SEARCH, params={'keywords':'ドンデコルテ','search_type':'search_string'})
+          soup = BeautifulSoup(html, 'html.parser')
+          # 各要素が何個あるか数える
+          print('__outline    :', len(soup.find_all(class_='fany_performanceListBox__outline')))
+          print('__header     :', len(soup.find_all(class_='fany_performanceListBox__header')))
+          print('__headerTitle:', len(soup.find_all(class_='fany_performanceListBox__headerTitle')))
+          print('preview_block:', len(soup.find_all(class_='preview_block')))
+          print('reception link:', len(soup.find_all('a', href=re.compile(r'/reception/'))))
+          # headerTitle の親をたどって、公演を囲む共通クラスを探す
+          t = soup.find(class_='fany_performanceListBox__headerTitle')
+          print('--- headerTitle の祖先クラス階層 ---')
+          p = t
+          for _ in range(6):
+              p = p.parent
+              if p is None: break
+              print(' ', p.name, p.get('class'))
+          "
