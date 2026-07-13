@@ -30,3 +30,24 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: python fany_watch.py scrape
+
+　　　- name: "検索件数とマッチ件数の調査"
+        run: |
+          python -c "
+          import fany_watch as f
+          for kw in f.KEYWORDS:
+              evs = f.search_events(kw)
+              hit = [e for e in evs if kw in e['search_text']]
+              print(f'{kw}: パース公演={len(evs)}件 / うち出演欄に名前あり={len(hit)}件')
+          print('---')
+          # ドンデコルテでヒットしなかった公演の出演欄を数件サンプル表示
+          evs = f.search_events('ドンデコルテ')
+          miss = [e for e in evs if 'ドンデコルテ' not in e['search_text']]
+          print(f'名前が出演欄に見えない公演: {len(miss)}件（先頭3件の出演欄↓）')
+          for e in miss[:3]:
+              print(' 日付:', e['date'], '| 出演:', repr(e['cast'][:80]))
+          print('--- 先着枠の有無 ---')
+          for e in evs[:5]:
+              sen = [s for s in e['sales'] if s['cat']=='先着']
+              print(e['date'], 'title=', e['title'][:20], '先着枠=', sen)
+          "
