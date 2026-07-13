@@ -51,25 +51,17 @@ jobs:
               sen = [s for s in e['sales'] if s['cat']=='先着']
               print(e['date'], 'title=', e['title'][:20], '先着枠=', sen)
           "
-      - name: "event_more JSON の全フィールド確認"
+      - name: "performance_sales の構造確認"
         run: |
-          python -c "
+          cat > /tmp/probe.py << 'PYEOF'
           import fany_watch as f, json
-          import requests
-          r = f.session.get(f.BASE + '/search/event_more', params={'keywords':'ドンデコルテ','search_type':'search_string','offset':0}, timeout=20)
+          r = f.session.get(f.BASE + "/search/event_more",
+                            params={"keywords": "ドンデコルテ", "search_type": "search_string", "offset": 0},
+                            timeout=20)
           data = r.json()
-          print('トップキー:', list(data.keys()))
-          perfs = data.get('performances', [])
-          print('この応答の公演数:', len(perfs))
-          if perfs:
-              p = perfs[0]
-              print('--- 1公演の全キー ---')
-              for k, v in p.items():
-                  sv = json.dumps(v, ensure_ascii=False)
-                  print(f'  {k}: {sv[:120]}')
-          # load_count や total 系のキーも探す
-          for k in data:
-              if k != 'performances':
-                  print('その他キー:', k, '=', json.dumps(data[k], ensure_ascii=False)[:100])
-          "
-          "
+          p = data["performances"][0]
+          print("performer_detail:", repr(p.get("performer_detail", ""))[:200])
+          print("--- performance_sales ---")
+          print(json.dumps(p.get("performance_sales", []), ensure_ascii=False, indent=2)[:1500])
+          PYEOF
+          python /tmp/probe.py
