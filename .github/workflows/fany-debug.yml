@@ -51,18 +51,25 @@ jobs:
               sen = [s for s in e['sales'] if s['cat']=='先着']
               print(e['date'], 'title=', e['title'][:20], '先着枠=', sen)
           "
-      - name: "event_more の中身を確認"
+      - name: "event_more JSON の全フィールド確認"
         run: |
           python -c "
-          import fany_watch as f
-          from bs4 import BeautifulSoup
-          # offset=10 で2ページ目を取得してみる
-          txt = f.get(f.BASE + '/search/event_more', params={'keywords':'ドンデコルテ','search_type':'search_string','offset':10})
-          print('先頭300文字:', repr(txt[:300]))
-          soup = BeautifulSoup(txt, 'html.parser')
-          n = len(soup.find_all(class_='fany_performanceListBox__header'))
-          print('このレスポンス内の公演数:', n)
-          # JSONなら load_count が入っているか
-          if txt.lstrip().startswith('{'):
-              print('JSON形式のようです')
+          import fany_watch as f, json
+          import requests
+          r = f.session.get(f.BASE + '/search/event_more', params={'keywords':'ドンデコルテ','search_type':'search_string','offset':0}, timeout=20)
+          data = r.json()
+          print('トップキー:', list(data.keys()))
+          perfs = data.get('performances', [])
+          print('この応答の公演数:', len(perfs))
+          if perfs:
+              p = perfs[0]
+              print('--- 1公演の全キー ---')
+              for k, v in p.items():
+                  sv = json.dumps(v, ensure_ascii=False)
+                  print(f'  {k}: {sv[:120]}')
+          # load_count や total 系のキーも探す
+          for k in data:
+              if k != 'performances':
+                  print('その他キー:', k, '=', json.dumps(data[k], ensure_ascii=False)[:100])
+          "
           "
