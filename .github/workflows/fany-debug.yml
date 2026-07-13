@@ -30,8 +30,8 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: python fany_watch.py scrape
-
-　　　- name: "検索件数とマッチ件数の調査"
+        
+      - name: "検索件数とマッチ件数の調査"
         run: |
           python -c "
           import fany_watch as f
