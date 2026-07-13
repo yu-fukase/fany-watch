@@ -95,3 +95,15 @@ jobs:
           for inp in soup.find_all('input'):
               print(inp.get('name'), '=', inp.get('value'), '(', inp.get('id'), ')')
           "
+      - name: "display_item_count で全件取得を試す"
+        run: |
+          python -c "
+          import fany_watch as f
+          from bs4 import BeautifulSoup
+          # display_item_count を100にして投げてみる
+          for cnt in [100]:
+              html = f.get(f.SEARCH, params={'keywords':'ドンデコルテ','search_type':'search_string','display_item_count':cnt})
+              soup = BeautifulSoup(html, 'html.parser')
+              n = len(soup.find_all(class_='fany_performanceListBox__header'))
+              print(f'display_item_count={cnt} -> 公演 {n} 件取得')
+          "
