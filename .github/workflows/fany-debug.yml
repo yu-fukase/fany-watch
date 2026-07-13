@@ -73,3 +73,25 @@ jobs:
               if p is None: break
               print(' ', p.name, p.get('class'))
           "
+      - name: "ページネーション方式の調査"
+        run: |
+          python -c "
+          import fany_watch as f, re
+          from bs4 import BeautifulSoup
+          html = f.get(f.SEARCH, params={'keywords':'ドンデコルテ','search_type':'search_string'})
+          soup = BeautifulSoup(html, 'html.parser')
+          # 総件数の表示を探す
+          m = re.search(r'検索結果\s*(\d+)\s*件', soup.get_text())
+          print('総件数表示:', m.group(1) if m else '見つからず')
+          print('1ページの公演数:', len(soup.find_all(class_='fany_performanceListBox__header')))
+          # ページ送りリンク・ボタンを探す
+          print('--- page/次へ 系のリンク ---')
+          for a in soup.find_all('a', href=True):
+              h = a['href']
+              if re.search(r'page|p=|offset|次|more', h + a.get_text()):
+                  print(repr(a.get_text(strip=True)[:20]), '->', h[:120])
+          # ページ番号やlimit系のパラメータを含むフォーム/inputを探す
+          print('--- input(hidden含む) ---')
+          for inp in soup.find_all('input'):
+              print(inp.get('name'), '=', inp.get('value'), '(', inp.get('id'), ')')
+          "
