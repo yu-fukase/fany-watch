@@ -103,37 +103,51 @@ def parse_search_html(html):
     soup = BeautifulSoup(html, "html.parser")
     events = []
 
-    for box in soup.find_all(class_="fany_performanceListBox__outline"):
+    # 公演の区切りは見出し(__header)。各見出しから次の見出しまでを1公演として扱う。
+    # （__outline は全公演を囲む箱が1個だけなので単位にできない）
+    headers = soup.find_all(class_="fany_performanceListBox__header")
+    for h in headers:
         # 日付
-        date_el = box.find(class_="fany_performanceListBox__headerPerformanceDate")
+        date_el = h.find(class_="fany_performanceListBox__headerPerformanceDate")
         date_raw = _txt(date_el)
         dm = DATE_HEAD_RE.search(date_raw)
         date = _norm_dt(dm.group(1)) if dm else _norm_dt(date_raw)
 
         # タイトル・会場
-        title = _txt(box.find(class_="fany_performanceListBox__headerTitle"))
-        venue = _txt(box.find(class_="fany_performanceListBox__headerVenue"))
+        title = _txt(h.find(class_="fany_performanceListBox__headerTitle"))
+        venue = _txt(h.find(class_="fany_performanceListBox__headerVenue"))
         pref = ""
         pm = re.search(r"（([^）]+?)）\s*$", venue)
         if pm:
             pref = pm.group(1)
 
+        # この見出しに属する範囲 = 次の __header が現れるまでの兄弟要素群
+        sibs = []
+        for sib in h.next_siblings:
+            get = getattr(sib, "get", None)
+            if get is not None:
+                cls = sib.get("class") or []
+                if "fany_performanceListBox__header" in cls:
+                    break
+            sibs.append(sib)
+        scope = BeautifulSoup("".join(str(s) for s in sibs), "html.parser")
+
         # 出演者: <dt>出演</dt> の隣の <dd>
         cast = ""
-        for dt in box.find_all("dt"):
+        for dt in scope.find_all("dt"):
             if "出演" in _txt(dt):
                 dd = dt.find_next("dd")
                 if dd:
                     cast = _txt(dd)
                 break
         if not cast:
-            pb = box.find("p", class_="preview_block")
+            pb = scope.find("p", class_="preview_block")
             if pb:
                 cast = _txt(pb)
 
         # 公演ID: reception リンク末尾
         eid = ""
-        a0 = box.find("a", href=re.compile(r"/reception/\d+/\d+"))
+        a0 = scope.find("a", href=re.compile(r"/reception/\d+/\d+"))
         if a0:
             m = re.search(r"/reception/\d+/(\d+)", a0["href"])
             if m:
@@ -141,7 +155,7 @@ def parse_search_html(html):
 
         # 受付枠
         sales, seen = [], set()
-        for tinfo in box.find_all(class_=re.compile(r"fany_g-ticketInfo\b")):
+        for tinfo in scope.find_all(class_=re.compile(r"fany_g-ticketInfo\b")):
             cls = " ".join(tinfo.get("class", []))
             context = _txt(tinfo)
             rm = RECEPT_RE.search(context)
