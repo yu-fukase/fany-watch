@@ -51,17 +51,24 @@ jobs:
               sen = [s for s in e['sales'] if s['cat']=='先着']
               print(e['date'], 'title=', e['title'][:20], '先着枠=', sen)
           "
-      - name: "performance_sales の構造確認"
+      - name: "公演URLフィールドの確認"
         run: |
           cat > probe.py << 'PYEOF'
           import fany_watch as f, json
-          r = f.session.get(f.BASE + "/search/event_more",
-                            params={"keywords": "ドンデコルテ", "search_type": "search_string", "offset": 0},
-                            timeout=20)
-          data = r.json()
+          data = f.get_json(f.SEARCH_MORE, params={"keywords":"ドンデコルテ","search_type":"search_string","offset":0})
           p = data["performances"][0]
-          print("performer_detail:", repr(p.get("performer_detail", ""))[:200])
-          print("--- performance_sales ---")
-          print(json.dumps(p.get("performance_sales", []), ensure_ascii=False, indent=2)[:1500])
+          # URLっぽいフィールドを全部拾う
+          print("--- 公演直下のURLっぽいキー ---")
+          for k, v in p.items():
+              if "url" in k.lower() or (isinstance(v, str) and v.startswith("http")):
+                  print(f"  {k}: {v}")
+          print("--- event サブオブジェクト ---")
+          ev = p.get("event", {})
+          for k, v in (ev.items() if isinstance(ev, dict) else []):
+              if "url" in k.lower() or "code" in k.lower() or (isinstance(v, str) and v.startswith("http")):
+                  print(f"  event.{k}: {v}")
+          print("--- 受付の destination_url ---")
+          for s in p.get("performance_sales", []):
+              print("  ", s.get("sales_name"), "->", s.get("destination_url"))
           PYEOF
           python probe.py
