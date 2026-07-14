@@ -1764,6 +1764,15 @@
       "date": "2026/08/29(土)",
       "cast": "中川家／COWCOW／くまだまさし／シマッシュレコード／すゑひろがりず／チョコレートプラネット／ミキ／滝音／素敵じゃないか／他",
       "notified": true
+    },
+    "49287": {
+      "title": "テレビ大阪「令和極漫才2026」",
+      "url": "https://ticket.fany.lol/event/49287",
+      "venue": "COOL JAPAN PARK OSAKA TTホール（大阪府）",
+      "pref": "大阪府",
+      "date": "2026/09/10(木)",
+      "cast": "ティーアップ、シャンプーハット、ギャロップ、ミルクボーイ、トット、ツートライブ、吉田たち、ドンデコルテ、バッテリィズ、たくろう、天才ピアニスト",
+      "notified": true
     }
   },
   "sales": {
@@ -1914,6 +1923,21 @@
       "matched": "ドンデコルテ",
       "start": "2026/07/20 10:30",
       "start_iso": "2026-07-20T10:30:00+09:00",
+      "r1_sent": false,
+      "r2_sent": false
+    },
+    "49287|2026-07-21T10:00:00+09:00": {
+      "event_id": "49287",
+      "title": "テレビ大阪「令和極漫才2026」",
+      "title_venue": "テレビ大阪「令和極漫才2026」 COOL JAPAN PARK OSAKA TTホール（大阪府）",
+      "venue": "COOL JAPAN PARK OSAKA TTホール（大阪府）",
+      "pref": "大阪府",
+      "date": "2026/09/10(木)",
+      "url": "https://ticket.fany.lol/event/49287",
+      "sale_url": "https://ticket.fany.lol/reception/60325/49287",
+      "matched": "ドンデコルテ",
+      "start": "2026/07/21 10:00",
+      "start_iso": "2026-07-21T10:00:00+09:00",
       "r1_sent": false,
       "r2_sent": false
     }
