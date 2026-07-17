@@ -146,15 +146,46 @@ def parse_performance(p):
         cat = "抽選" if ("抽選" in sname or "抽選" in status) else "先着"
         start_raw = s.get("sales_start_datetime_raw", "")
         end_raw = s.get("sales_end_datetime_raw", "")
+        # 申込可能か（受付前/受付中＝これから申し込める。受付終了/発売終了は不可）
+        is_open = ("受付前" in status or "受付中" in status
+                   or "発売前" in status or "発売中" in status)
+        # プレミアム会員向け抽選か
+        is_premium = "プレミアム" in sname
         sales.append({
             "cat": cat, "name": sname, "status": status,
             "start": _raw_to_disp(start_raw), "start_iso": _raw_to_iso(start_raw),
             "end": _raw_to_disp(end_raw),
             "url": s.get("destination_url", "") or "",
+            "open": is_open, "premium": is_premium,
         })
 
+    # 公演の代表URL（要望ルール）:
+    #   1. 申込可能な抽選がある(=抽選が受付前/受付中) → プレミアム抽選URLを優先。
+    #      プレミアムが無ければ申込可能な抽選のいずれか。
+    #   2. 申込可能な抽選が無い(抽選終了 or 抽選なし) → 先着URL(申込可能を優先、無ければ先着のいずれか)。
+    #   3. どれも無ければ /event/<id>。
+    def pick(cond):
+        for s in sales:
+            if cond(s) and s["url"]:
+                return s["url"]
+        return ""
+
+    event_url = ""
+    open_lottery = [s for s in sales if s["cat"] == "抽選" and s["open"]]
+    if open_lottery:
+        # プレミアム抽選を最優先、次に申込可能な抽選
+        event_url = (pick(lambda s: s["cat"] == "抽選" and s["open"] and s["premium"])
+                     or pick(lambda s: s["cat"] == "抽選" and s["open"]))
+    if not event_url:
+        # 先着（申込可能を優先、無ければ先着のいずれか）
+        event_url = (pick(lambda s: s["cat"] == "先着" and s["open"])
+                     or pick(lambda s: s["cat"] == "先着"))
+    if not event_url:
+        # 最後の保険: 何らかの受付URL → /event/<id>
+        event_url = pick(lambda s: True) or (f"{BASE}/event/{eid}" if eid else BASE)
+
     return {
-        "id": eid, "url": f"{BASE}/event/{eid}" if eid else BASE,
+        "id": eid, "url": event_url,
         "name": name, "title": name, "venue": venue, "pref": pref,
         "date": date, "cast": cast, "sales": sales,
         "sales_disp": sales_lines(sales),
@@ -224,7 +255,8 @@ def notify_event(ev):
     if len(cast) > 1000:
         cast = cast[:1000] + "…"
     title = ev.get("title") or ev.get("title_venue") or "-"
-    body = (f"「{'／'.join(matched)}」が出演する公演が追加されました。\n\n"
+    kw_line = f"{'／'.join(matched)}出演公演が追加されました！"
+    body = (f"@everyone\n{kw_line}\n\n"
             f"■ 公演タイトル: {title}\n"
             f"■ 公演日: {ev.get('date') or '-'}\n"
             f"■ 場所: {ev.get('venue') or '-'}\n"
@@ -238,7 +270,9 @@ def notify_event(ev):
                  {"name": "出演者", "value": cast, "inline": False},
                  {"name": "申し込み日程", "value": "\n".join(ev["sales_disp"])[:1024], "inline": False},
                  {"name": "検出キーワード", "value": "／".join(matched), "inline": False}]}
-    if not send_discord({"embeds": [embed]}):
+    payload = {"content": f"@everyone {kw_line}", "embeds": [embed],
+               "allowed_mentions": {"parse": ["everyone"]}}
+    if not send_discord(payload):
         print("\n=== 通知(フォールバック) ===\n" + body + "\n")
     log(body)
 
@@ -248,7 +282,8 @@ def notify_more(events):
     lst = "\n".join(f"・{e.get('title') or e['id']}（{e.get('date') or '日程未定'}） {e['url']}"
                     for e in events)
     content = f"📢 他{n}件の公演が追加されました\n{lst}"
-    if not send_discord({"content": content[:1900]}):
+    payload = {"content": content[:1900], "allowed_mentions": {"parse": []}}
+    if not send_discord(payload):
         print("\n=== 通知(フォールバック) ===\n" + content + "\n")
     log(content)
 
@@ -256,7 +291,7 @@ def notify_more(events):
 def notify_no_new():
     now = datetime.now(JST).strftime("%Y-%m-%d %H:%M")
     content = f"✅ 追加の公演はありませんでした（{now} 時点）"
-    if not send_discord({"content": content}):
+    if not send_discord({"content": content, "allowed_mentions": {"parse": []}}):
         print("\n=== 通知(フォールバック) ===\n" + content + "\n")
     log(content)
 
