@@ -51,24 +51,20 @@ jobs:
               sen = [s for s in e['sales'] if s['cat']=='先着']
               print(e['date'], 'title=', e['title'][:20], '先着枠=', sen)
           "
-      - name: "公演URLフィールドの確認"
+      - name: "抽選受付の名称バリエーション確認"
         run: |
           cat > probe.py << 'PYEOF'
-          import fany_watch as f, json
-          data = f.get_json(f.SEARCH_MORE, params={"keywords":"ドンデコルテ","search_type":"search_string","offset":0})
-          p = data["performances"][0]
-          # URLっぽいフィールドを全部拾う
-          print("--- 公演直下のURLっぽいキー ---")
-          for k, v in p.items():
-              if "url" in k.lower() or (isinstance(v, str) and v.startswith("http")):
-                  print(f"  {k}: {v}")
-          print("--- event サブオブジェクト ---")
-          ev = p.get("event", {})
-          for k, v in (ev.items() if isinstance(ev, dict) else []):
-              if "url" in k.lower() or "code" in k.lower() or (isinstance(v, str) and v.startswith("http")):
-                  print(f"  event.{k}: {v}")
-          print("--- 受付の destination_url ---")
-          for s in p.get("performance_sales", []):
-              print("  ", s.get("sales_name"), "->", s.get("destination_url"))
+          import fany_watch as f
+          names = {}
+          for kw in f.KEYWORDS:
+              for p in f.fetch_all_performances(kw):
+                  for s in p.get("performance_sales", []):
+                      nm = s.get("sales_name", "")
+                      st = s.get("display_sales_status", "")
+                      if "抽選" in nm or "抽選" in st:
+                          names[nm] = names.get(nm, 0) + 1
+          print("--- 抽選系 sales_name の一覧（出現回数） ---")
+          for nm, c in sorted(names.items(), key=lambda x: -x[1]):
+              print(f"  {c:3d}回: {repr(nm)}")
           PYEOF
           python probe.py
