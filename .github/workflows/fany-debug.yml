@@ -51,20 +51,19 @@ jobs:
               sen = [s for s in e['sales'] if s['cat']=='先着']
               print(e['date'], 'title=', e['title'][:20], '先着枠=', sen)
           "
-      - name: "抽選受付の名称バリエーション確認"
+      - name: "販売ステータスの文字列確認"
         run: |
           cat > probe.py << 'PYEOF'
           import fany_watch as f
-          names = {}
+          stats = {}
           for kw in f.KEYWORDS:
               for p in f.fetch_all_performances(kw):
                   for s in p.get("performance_sales", []):
-                      nm = s.get("sales_name", "")
-                      st = s.get("display_sales_status", "")
-                      if "抽選" in nm or "抽選" in st:
-                          names[nm] = names.get(nm, 0) + 1
-          print("--- 抽選系 sales_name の一覧（出現回数） ---")
-          for nm, c in sorted(names.items(), key=lambda x: -x[1]):
-              print(f"  {c:3d}回: {repr(nm)}")
+                      key = (("抽選" if "抽選" in (s.get("sales_name","")+s.get("display_sales_status","")) else "先着"),
+                             s.get("display_sales_status",""))
+                      stats[key] = stats.get(key, 0) + 1
+          print("--- (種別, display_sales_status) の一覧 ---")
+          for k, c in sorted(stats.items(), key=lambda x:-x[1]):
+              print(f"  {c:3d}回: {k}")
           PYEOF
           python probe.py
