@@ -1735,7 +1735,7 @@
       "start": "2026/07/20 10:00",
       "start_iso": "2026-07-20T10:00:00+09:00",
       "r1_sent": true,
-      "r2_sent": false
+      "r2_sent": true
     },
     "48584|2026-07-20T10:00:00+09:00": {
       "event_id": "48584",
@@ -1750,7 +1750,7 @@
       "start": "2026/07/20 10:00",
       "start_iso": "2026-07-20T10:00:00+09:00",
       "r1_sent": true,
-      "r2_sent": false
+      "r2_sent": true
     },
     "48585|2026-07-20T10:00:00+09:00": {
       "event_id": "48585",
@@ -1764,36 +1764,6 @@
       "matched": "ドンデコルテ",
       "start": "2026/07/20 10:00",
       "start_iso": "2026-07-20T10:00:00+09:00",
-      "r1_sent": true,
-      "r2_sent": false
-    },
-    "48123|2026-07-18T10:00:00+09:00": {
-      "event_id": "48123",
-      "title": "札幌爆音漫才選集",
-      "title_venue": "札幌爆音漫才選集 Zepp Sapporo（北海道）",
-      "venue": "Zepp Sapporo（北海道）",
-      "pref": "北海道",
-      "date": "2026/09/18(金)",
-      "url": "https://ticket.fany.lol/reception/59426/48123",
-      "sale_url": "https://ticket.fany.lol/reception/59426/48123",
-      "matched": "ドンデコルテ",
-      "start": "2026/07/18 10:00",
-      "start_iso": "2026-07-18T10:00:00+09:00",
-      "r1_sent": true,
-      "r2_sent": true
-    },
-    "48124|2026-07-18T10:00:00+09:00": {
-      "event_id": "48124",
-      "title": "札幌爆音漫才選集",
-      "title_venue": "札幌爆音漫才選集 Zepp Sapporo（北海道）",
-      "venue": "Zepp Sapporo（北海道）",
-      "pref": "北海道",
-      "date": "2026/09/18(金)",
-      "url": "https://ticket.fany.lol/reception/59426/48124",
-      "sale_url": "https://ticket.fany.lol/reception/59426/48124",
-      "matched": "ドンデコルテ",
-      "start": "2026/07/18 10:00",
-      "start_iso": "2026-07-18T10:00:00+09:00",
       "r1_sent": true,
       "r2_sent": true
     },
@@ -1810,7 +1780,7 @@
       "start": "2026/07/20 10:00",
       "start_iso": "2026-07-20T10:00:00+09:00",
       "r1_sent": true,
-      "r2_sent": false
+      "r2_sent": true
     },
     "48596|2026-07-20T10:00:00+09:00": {
       "event_id": "48596",
@@ -1825,7 +1795,7 @@
       "start": "2026/07/20 10:00",
       "start_iso": "2026-07-20T10:00:00+09:00",
       "r1_sent": true,
-      "r2_sent": false
+      "r2_sent": true
     },
     "48597|2026-07-20T10:00:00+09:00": {
       "event_id": "48597",
@@ -1840,7 +1810,7 @@
       "start": "2026/07/20 10:00",
       "start_iso": "2026-07-20T10:00:00+09:00",
       "r1_sent": true,
-      "r2_sent": false
+      "r2_sent": true
     },
     "47756|2026-07-20T10:30:00+09:00": {
       "event_id": "47756",
@@ -1855,7 +1825,7 @@
       "start": "2026/07/20 10:30",
       "start_iso": "2026-07-20T10:30:00+09:00",
       "r1_sent": true,
-      "r2_sent": false
+      "r2_sent": true
     },
     "47757|2026-07-20T10:30:00+09:00": {
       "event_id": "47757",
@@ -1870,7 +1840,7 @@
       "start": "2026/07/20 10:30",
       "start_iso": "2026-07-20T10:30:00+09:00",
       "r1_sent": true,
-      "r2_sent": false
+      "r2_sent": true
     },
     "49287|2026-07-21T10:00:00+09:00": {
       "event_id": "49287",
@@ -1916,36 +1886,6 @@
       "start_iso": "2026-08-01T10:00:00+09:00",
       "r1_sent": false,
       "r2_sent": false
-    },
-    "48112|2026-07-18T11:00:00+09:00": {
-      "event_id": "48112",
-      "title": "【通期パス（2日券）・11/7(土)1日券】たくろう万博",
-      "title_venue": "【通期パス（2日券）・11/7(土)1日券】たくろう万博 万博記念公園もみじ川芝生広場 （大阪府）",
-      "venue": "万博記念公園もみじ川芝生広場 （大阪府）",
-      "pref": "大阪府",
-      "date": "2026/11/07(土)",
-      "url": "https://ticket.fany.lol/reception/59441/48112",
-      "sale_url": "https://ticket.fany.lol/reception/59441/48112",
-      "matched": "ドンデコルテ",
-      "start": "2026/07/18 11:00",
-      "start_iso": "2026-07-18T11:00:00+09:00",
-      "r1_sent": true,
-      "r2_sent": true
-    },
-    "48125|2026-07-18T11:00:00+09:00": {
-      "event_id": "48125",
-      "title": "【11/8(日)1日券】たくろう万博",
-      "title_venue": "【11/8(日)1日券】たくろう万博 万博記念公園もみじ川芝生広場 （大阪府）",
-      "venue": "万博記念公園もみじ川芝生広場 （大阪府）",
-      "pref": "大阪府",
-      "date": "2026/11/08(日)",
-      "url": "https://ticket.fany.lol/reception/59441/48125",
-      "sale_url": "https://ticket.fany.lol/reception/59441/48125",
-      "matched": "ドンデコルテ",
-      "start": "2026/07/18 11:00",
-      "start_iso": "2026-07-18T11:00:00+09:00",
-      "r1_sent": true,
-      "r2_sent": true
     },
     "49444|2026-07-23T10:00:00+09:00": {
       "event_id": "49444",
